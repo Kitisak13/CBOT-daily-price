@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Corn",
+    "product_id": 300,
+    "slug": "corn",
+    "csv_name": "corn_daily.csv"
+  },
+  {
+    "name": "Wheat",
+    "product_id": 323,
+    "slug": "wheat",
+    "csv_name": "wheat_daily.csv"
+  },
+  {
+    "name": "Soybean",
+    "product_id": 320,
+    "slug": "soybean",
+    "csv_name": "soybean_daily.csv"
+  },
+  {
+    "name": "Soybean Meal",
+    "product_id": 310,
+    "slug": "soybean-meal",
+    "csv_name": "soybean_meal_daily.csv"
+  },
+  {
+    "name": "Soybean Oil",
+    "product_id": 312,
+    "slug": "soybean-oil",
+    "csv_name": "soybean_oil_daily.csv"
+  },
+  {
+    "name": "Rough Rice",
+    "product_id": 336,
+    "slug": "rough-rice",
+    "csv_name": "rough_rice_daily.csv"
+  },
+  {
+    "name": "Sugar No.11",
+    "product_id": 470,
+    "slug": "sugar-no11",
+    "csv_name": "sugar_no11_daily.csv"
+  },
+  {
+    "name": "Dutch TTF Natural Gas",
+    "product_id": 8337,
+    "slug": "dutch-ttf-natural-gas-usd-mmbtu-icis-heren-front-month",
+    "csv_name": "dutch_ttf_natural_gas_daily.csv"
+  },
+  {
+    "name": "Light Sweet Crude (WTI)",
+    "product_id": 425,
+    "slug": "light-sweet-crude",
+    "csv_name": "light_sweet_crude_daily.csv"
+  },
+  {
+    "name": "Brent Crude Oil",
+    "product_id": 421,
+    "slug": "brent-crude-oil",
+    "csv_name": "brent_crude_oil_daily.csv"
+  }
+]
