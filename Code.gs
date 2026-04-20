@@ -2,7 +2,7 @@ function mainProcessing() {
   // เคลียร์ Trigger เก่าของ mainProcessing ทิ้งก่อนเพื่อป้องกันการสร้างซ้ำซ้อน
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'mainProcessing') {
+    if (triggers[i].getHandlerFunction() === "mainProcessing") {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
@@ -22,7 +22,7 @@ function mainProcessing() {
   }
 
   // ป้องกันการแอบรันซ้ำ ถ้าระบบเคยบันทึกข้อมูลของวันนี้ไปแล้ว
-  var todayStr = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  var todayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
   var lastSuccess = scriptProperties.getProperty("last_success_date");
   if (lastSuccess === todayStr) {
     Logger.log("รอบวันนี้เก็บข้อมูลครบและบันทึกเสร็จสิ้นไปแล้ว ข้ามการทำงาน");
@@ -30,10 +30,13 @@ function mainProcessing() {
   }
 
   // ตรวจสอบเวลา หากเกินบ่าย 2 โมง แสดงว่าตลาดปิดหรือไม่อัพเดทแล้ว ให้ยกเลิกการพยายาม Retry
-  var nowHour = new Date().getHours();
+  // ⚠️ ต้องใช้ Timezone Asia/Bangkok เพราะ new Date().getHours() จะใช้ Timezone ของ Google Server ซึ่งอาจเป็น UTC
+  var nowHour = parseInt(Utilities.formatDate(new Date(), "Asia/Bangkok", "H"), 10);
   if (nowHour >= 14) {
-    Logger.log("ขณะนี้เวลา 14:00 น. ขึ้นไป ข้อมูลตลาดอาจไม่ครบถ้วน หยุดการพยายามในวันนี้และบันทึกวันที่ความสำเร็จเป็นวันนี้ไปเลย");
-    scriptProperties.setProperty("last_success_date", todayStr); 
+    Logger.log(
+      "ขณะนี้เวลา 14:00 น. ขึ้นไป ข้อมูลตลาดอาจไม่ครบถ้วน หยุดการพยายามในวันนี้และบันทึกวันที่ความสำเร็จเป็นวันนี้ไปเลย",
+    );
+    scriptProperties.setProperty("last_success_date", todayStr);
     return;
   }
 
@@ -57,8 +60,9 @@ function mainProcessing() {
 
   if (response.getResponseCode() !== 200) {
     Logger.log(
-      "ไม่สามารถเชื่อมต่อ CME API ได้: HTTP " + response.getResponseCode(),
+      "ไม่สามารถเชื่อมต่อ CME API ได้: HTTP " + response.getResponseCode() + " จะลองพยายามใหม่ (Retry) ในอีก 5 นาที",
     );
+    scheduleRetry(5);
     return;
   }
 
@@ -102,7 +106,9 @@ function mainProcessing() {
       );
 
       if (scrapedCount === -1) {
-        Logger.log("ข้อมูลราคายังมาไม่ครบ! จะพยายามดึงใหม่ (Retry) ในอีก 5 นาที...");
+        Logger.log(
+          "ข้อมูลราคายังมาไม่ครบ! จะพยายามดึงใหม่ (Retry) ในอีก 5 นาที...",
+        );
         scheduleRetry(5);
         return;
       }
@@ -129,7 +135,9 @@ function mainProcessing() {
       scriptProperties.setProperty("last_success_date", todayStr);
       Logger.log("เสร็จสิ้นการทำงานทั้งหมด ✅");
     } else {
-      Logger.log("Corn ยังไม่มีการอัพเดทวันที่ (เป็นวันที่เดิม) จะลองใหม่ (Retry) ในอีก 5 นาที");
+      Logger.log(
+        "Corn ยังไม่มีการอัพเดทวันที่ (เป็นวันที่เดิม) จะลองใหม่ (Retry) ในอีก 5 นาที",
+      );
       scheduleRetry(5);
     }
   } else {
@@ -210,8 +218,13 @@ function scrapeAllProductsToSheet(apiKey, sheetId, sheetName, tradeDate) {
 
           // เช็คก่อนว่าอัพเดทวันครบตามเป้าหมาย (tradeDate) หรือยัง
           if (latestTradeId !== tradeDate) {
-             Logger.log(products[i].name + " ราคายังไม่อัพเดท (ยังเป็นวันที่ " + latestTradeId + ")");
-             allUpdated = false;
+            Logger.log(
+              products[i].name +
+                " ราคายังไม่อัพเดท (ยังเป็นวันที่ " +
+                latestTradeId +
+                ")",
+            );
+            allUpdated = false;
           } else {
             var settleUrl =
               "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/" +
@@ -227,11 +240,17 @@ function scrapeAllProductsToSheet(apiKey, sheetId, sheetName, tradeDate) {
               "&url=" +
               encodeURIComponent(settleUrl) +
               "&render=false";
-            settlementRequests.push({ url: apiSettle, muteHttpExceptions: true });
+            settlementRequests.push({
+              url: apiSettle,
+              muteHttpExceptions: true,
+            });
             validProducts.push(products[i]);
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        Logger.log(products[i].name + " เกิดข้อผิดพลาดขณะอ่าน TradeDate JSON: " + e.message);
+        allUpdated = false;
+      }
     } else {
       Logger.log(products[i].name + " ไม่สามารถดึงวันที่ล่าสุดได้");
       allUpdated = false;
@@ -240,7 +259,9 @@ function scrapeAllProductsToSheet(apiKey, sheetId, sheetName, tradeDate) {
 
   // ถ้าอัพเดทยังไม่ครบทุกตัว ให้ยกเลิกการดึงราคา และส่ง -1 กลับไป
   if (!allUpdated) {
-    Logger.log("ข้อมูลอัพเดทยังมาไม่ครบทั้ง 10 ประเภท ยกเลิกการดึงข้อมูลและรอ Retry");
+    Logger.log(
+      "ข้อมูลอัพเดทยังมาไม่ครบทั้ง 10 ประเภท ยกเลิกการดึงข้อมูลและรอ Retry",
+    );
     return -1;
   }
 
@@ -282,13 +303,19 @@ function scrapeAllProductsToSheet(apiKey, sheetId, sheetName, tradeDate) {
             cleanCmeNumber(first.openInterest),
           ]);
         }
-      } catch (e) {}
+      } catch (e) {
+        Logger.log(p.name + " เกิดข้อผิดพลาดขณะอ่านข้อมูลราคา Settlements: " + e.message);
+      }
     }
   }
 
   // ตรวจสอบอีกรอบว่า ดึงราคาได้ครบทั้งหมดหรือไม่ ป้องกันการเกิด error ลับหลังบางตัว
   if (rowsToAppend.length !== products.length) {
-    Logger.log("ดึงตัวเลขราคาได้ไม่ครบ 10 ชนิด (ได้เพียง " + rowsToAppend.length + ") ยกเลิกการบันทึก");
+    Logger.log(
+      "ดึงตัวเลขราคาได้ไม่ครบ 10 ชนิด (ได้เพียง " +
+        rowsToAppend.length +
+        ") ยกเลิกการบันทึก",
+    );
     return -1;
   }
 
@@ -334,7 +361,7 @@ function cleanCmeNumber(val) {
 // ตัวช่วยในกรณีที่ตลาดยังอัพเดทราคาไม่ครบ ให้พยายามรันอีกครั้ง (Retry)
 // =========================================================
 function scheduleRetry(minutes) {
-  ScriptApp.newTrigger('mainProcessing')
+  ScriptApp.newTrigger("mainProcessing")
     .timeBased()
     .after(minutes * 60 * 1000)
     .create();
@@ -346,23 +373,24 @@ function scheduleRetry(minutes) {
 // =========================================================
 function setUpDailyTrigger() {
   var timeToRun = "12:15"; // ระบุเวลาที่ต้องการให้รันตรงนี้
-  
+
   // 1. เคลียร์ Trigger ทิ้งก่อนเพื่อป้องกันการสร้างซ้ำซ้อน
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
-    if (triggers[i].getHandlerFunction() === 'mainProcessing') {
+    if (triggers[i].getHandlerFunction() === "mainProcessing") {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
 
-  // 2. สร้างออบเจ็กต์ Date สำหรับเวลา 12:15 น. ของวันนี้
-  var now = new Date();
-  var parts = timeToRun.split(':');
+  // 2. สร้างออบเจ็กต์ Date สำหรับเวลา 12:15 น. ของวันนี้ (เวลาไทย)
+  // ⚠️ ใช้ Utilities.formatDate เพื่อให้แน่ใจว่าเวลาอิงตาม Timezone Asia/Bangkok
+  var parts = timeToRun.split(":");
   var hour = parseInt(parts[0], 10);
   var min = parseInt(parts[1], 10);
-  
-  var triggerTime = new Date();
-  triggerTime.setHours(hour, min, 0, 0);
+
+  var todayDateStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
+  var triggerTime = new Date(todayDateStr + "T" + ("0" + hour).slice(-2) + ":" + ("0" + min).slice(-2) + ":00+07:00");
+  var now = new Date();
 
   // ถ้าเวลาปัจจุบันเลยเวลาที่ตั้งไว้แล้ว (เช่น เผลอมากดรันตอน 13:00) ให้ตั้งเวลาเป็น 12:15 ของวันพรุ่งนี้แทน
   if (now.getTime() > triggerTime.getTime()) {
@@ -370,10 +398,7 @@ function setUpDailyTrigger() {
   }
 
   // 3. ปล่อยคำสั่งสร้าง Trigger แบบเจาะจงเวลา (.at)
-  ScriptApp.newTrigger('mainProcessing')
-    .timeBased()
-    .at(triggerTime)
-    .create();
-    
-  Logger.log('ตั้งเวลารัน mainProcessing สำเร็จ: รันในเวลา ' + triggerTime);
+  ScriptApp.newTrigger("mainProcessing").timeBased().at(triggerTime).create();
+
+  Logger.log("ตั้งเวลารัน mainProcessing สำเร็จ: รันในเวลา " + triggerTime);
 }
