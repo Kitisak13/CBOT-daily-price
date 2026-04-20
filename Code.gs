@@ -1,4 +1,12 @@
 function mainProcessing() {
+  // เคลียร์ Trigger เก่าของ mainProcessing ทิ้งก่อนเพื่อป้องกันการสร้างซ้ำซ้อน
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'mainProcessing') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+
   // === ตั้งค่าตัวแปรหลัก ===
   var scriptProperties = PropertiesService.getScriptProperties();
   var scraperApiKey = scriptProperties.getProperty("scraperApiKey");
@@ -10,6 +18,22 @@ function mainProcessing() {
     Logger.log(
       "ข้อผิดพลาด: ไม่พบ API Key กรุณาเข้าไปตั้งค่าตัวแปร 'scraperApiKey' ใน Project Settings > Script Properties",
     );
+    return;
+  }
+
+  // ป้องกันการแอบรันซ้ำ ถ้าระบบเคยบันทึกข้อมูลของวันนี้ไปแล้ว
+  var todayStr = Utilities.formatDate(new Date(), 'Asia/Bangkok', 'yyyy-MM-dd');
+  var lastSuccess = scriptProperties.getProperty("last_success_date");
+  if (lastSuccess === todayStr) {
+    Logger.log("รอบวันนี้เก็บข้อมูลครบและบันทึกเสร็จสิ้นไปแล้ว ข้ามการทำงาน");
+    return;
+  }
+
+  // ตรวจสอบเวลา หากเกินบ่าย 2 โมง แสดงว่าตลาดปิดหรือไม่อัพเดทแล้ว ให้ยกเลิกการพยายาม Retry
+  var nowHour = new Date().getHours();
+  if (nowHour >= 14) {
+    Logger.log("ขณะนี้เวลา 14:00 น. ขึ้นไป ข้อมูลตลาดอาจไม่ครบถ้วน หยุดการพยายามในวันนี้และบันทึกวันที่ความสำเร็จเป็นวันนี้ไปเลย");
+    scriptProperties.setProperty("last_success_date", todayStr); 
     return;
   }
 
@@ -77,6 +101,12 @@ function mainProcessing() {
         latestDate,
       );
 
+      if (scrapedCount === -1) {
+        Logger.log("ข้อมูลราคายังมาไม่ครบ! จะพยายามดึงใหม่ (Retry) ในอีก 5 นาที...");
+        scheduleRetry(5);
+        return;
+      }
+
       // 3. ส่งอีเมลสรุป
       var subject = "🔔 อัพเดทราคาตลาด CME - " + latestDate;
       var body =
@@ -94,11 +124,13 @@ function mainProcessing() {
 
       GmailApp.sendEmail(email, subject, body);
 
-      // บันทึกวันที่ใหม่
+      // บันทึกวันที่ใหม่ และวันที่ประวัติล่าสุด
       scriptProperties.setProperty("cme_latest_date", latestDate);
+      scriptProperties.setProperty("last_success_date", todayStr);
       Logger.log("เสร็จสิ้นการทำงานทั้งหมด ✅");
     } else {
-      Logger.log("ยังไม่มีการอัพเดทข้อมูลใหม่ ข้ามการดึงราคา");
+      Logger.log("Corn ยังไม่มีการอัพเดทวันที่ (เป็นวันที่เดิม) จะลองใหม่ (Retry) ในอีก 5 นาที");
+      scheduleRetry(5);
     }
   } else {
     Logger.log("ดึงข้อมูลสำเร็จ แต่รูปแบบข้อมูลวันที่ว่างเปล่า");
@@ -166,6 +198,7 @@ function scrapeAllProductsToSheet(apiKey, sheetId, sheetName, tradeDate) {
 
   var settlementRequests = [];
   var validProducts = [];
+  var allUpdated = true; // เพิ่มตัวแปรสำหรับเช็ค
 
   for (var i = 0; i < products.length; i++) {
     if (tradeResponses[i].getResponseCode() === 200) {
@@ -175,25 +208,40 @@ function scrapeAllProductsToSheet(apiKey, sheetId, sheetName, tradeDate) {
         if (tradeDatesObj && tradeDatesObj.length > 0) {
           var latestTradeId = tradeDatesObj[0][0]; // "04/13/2026"
 
-          var settleUrl =
-            "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/" +
-            products[i].product_id +
-            "/FUT?strategy=DEFAULT&tradeDate=" +
-            latestTradeId +
-            "&pageSize=500&isProtected";
+          // เช็คก่อนว่าอัพเดทวันครบตามเป้าหมาย (tradeDate) หรือยัง
+          if (latestTradeId !== tradeDate) {
+             Logger.log(products[i].name + " ราคายังไม่อัพเดท (ยังเป็นวันที่ " + latestTradeId + ")");
+             allUpdated = false;
+          } else {
+            var settleUrl =
+              "https://www.cmegroup.com/CmeWS/mvc/Settlements/Futures/Settlements/" +
+              products[i].product_id +
+              "/FUT?strategy=DEFAULT&tradeDate=" +
+              latestTradeId +
+              "&pageSize=500&isProtected";
 
-          // ใช้ render=false เช่นกัน
-          var apiSettle =
-            "http://api.scraperapi.com/?api_key=" +
-            apiKey +
-            "&url=" +
-            encodeURIComponent(settleUrl) +
-            "&render=false";
-          settlementRequests.push({ url: apiSettle, muteHttpExceptions: true });
-          validProducts.push(products[i]);
+            // ใช้ render=false เช่นกัน
+            var apiSettle =
+              "http://api.scraperapi.com/?api_key=" +
+              apiKey +
+              "&url=" +
+              encodeURIComponent(settleUrl) +
+              "&render=false";
+            settlementRequests.push({ url: apiSettle, muteHttpExceptions: true });
+            validProducts.push(products[i]);
+          }
         }
       } catch (e) {}
+    } else {
+      Logger.log(products[i].name + " ไม่สามารถดึงวันที่ล่าสุดได้");
+      allUpdated = false;
     }
+  }
+
+  // ถ้าอัพเดทยังไม่ครบทุกตัว ให้ยกเลิกการดึงราคา และส่ง -1 กลับไป
+  if (!allUpdated) {
+    Logger.log("ข้อมูลอัพเดทยังมาไม่ครบทั้ง 10 ประเภท ยกเลิกการดึงข้อมูลและรอ Retry");
+    return -1;
   }
 
   if (settlementRequests.length === 0) return 0;
@@ -238,6 +286,12 @@ function scrapeAllProductsToSheet(apiKey, sheetId, sheetName, tradeDate) {
     }
   }
 
+  // ตรวจสอบอีกรอบว่า ดึงราคาได้ครบทั้งหมดหรือไม่ ป้องกันการเกิด error ลับหลังบางตัว
+  if (rowsToAppend.length !== products.length) {
+    Logger.log("ดึงตัวเลขราคาได้ไม่ครบ 10 ชนิด (ได้เพียง " + rowsToAppend.length + ") ยกเลิกการบันทึก");
+    return -1;
+  }
+
   // ==============================================================
   // STEP C: บันทึกลง Google Sheet
   // ==============================================================
@@ -274,6 +328,17 @@ function cleanCmeNumber(val) {
   }
 
   return strVal;
+}
+
+// =========================================================
+// ตัวช่วยในกรณีที่ตลาดยังอัพเดทราคาไม่ครบ ให้พยายามรันอีกครั้ง (Retry)
+// =========================================================
+function scheduleRetry(minutes) {
+  ScriptApp.newTrigger('mainProcessing')
+    .timeBased()
+    .after(minutes * 60 * 1000)
+    .create();
+  Logger.log("⏰ ตั้งเวลาให้รันอัตโนมัติอีกครั้งในอีก " + minutes + " นาที");
 }
 
 // =========================================================
