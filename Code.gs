@@ -21,6 +21,13 @@ function mainProcessing() {
     return;
   }
 
+  // เช็ควันหยุดเสาร์-อาทิตย์ (0 = อาทิตย์, 6 = เสาร์)
+  var dayOfWeek = new Date().getDay();
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    Logger.log("วันนี้เป็นวันหยุดสุดสัปดาห์ (เสาร์-อาทิตย์) ตลาด CME ปิด ข้ามการดึงข้อมูลเพื่อประหยัดเครดิต");
+    return;
+  }
+
   // ป้องกันการแอบรันซ้ำ ถ้าระบบเคยบันทึกข้อมูลของวันนี้ไปแล้ว
   var todayStr = Utilities.formatDate(new Date(), "Asia/Bangkok", "yyyy-MM-dd");
   var lastSuccess = scriptProperties.getProperty("last_success_date");
